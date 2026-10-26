@@ -39,10 +39,13 @@ npx electron-builder --linux --x64 --publish never
 
 ## CI vs release
 
-`.github/workflows/ci.yml` runs on main pushes and pull requests:
+`.github/workflows/ci.yml` is manual-only in this server-focused fork:
 
-- Typecheck, full deterministic test suite, and lint on Ubuntu.
 - Native renderer tests plus standalone build/boot-smoke on macOS (`macos-15`), Windows, and Linux. This macOS job does not compile the Icon Composer asset; only release packaging needs the newer runner.
+
+`.github/workflows/container.yml` owns the automatic main/PR checks: one Ubuntu
+typecheck/test/lint job, followed by Linux AMD64 image build and runtime checks.
+The desktop workflow does not duplicate that quality job.
 
 `.github/workflows/release.yml` has two deliberately separate modes:
 

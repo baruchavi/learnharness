@@ -110,7 +110,9 @@ sessions. Multiple replicas require a separate storage and coordination design.
 ## Image publishing
 
 `.github/workflows/container.yml` verifies Linux AMD64 images on pull requests
-and main pushes. After verification, it publishes
+and main pushes. It runs typecheck, tests, and lint once, then builds and checks
+the container. Desktop compatibility checks in `ci.yml` are manual-only for
+this fork. After verification, it publishes
 `ghcr.io/baruchavi/learnharness:sha-<full-source-commit>` only from `main` in
 `baruchavi/learnharness`. The owner approved public source and a public image,
 with application access restricted separately through Tailscale.
