@@ -75,23 +75,18 @@ jobs:
           docker rm -f learnharness-smoke || true
           docker volume rm learnharness-smoke || true
       # The owner explicitly chose this public fork. Other forks, PRs, and
-      # non-main manual runs never publish. Package visibility is independent
-      # of source visibility and must remain private.
-      - name: Refuse an existing public image package
+      # non-main manual runs never publish. The owner also approved a public
+      # image; application access remains controlled separately by Tailscale.
+      - name: Verify the owner-approved public image package
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'baruchavi/learnharness'
         uses: actions/github-script@v9
         with:
           script: |
-            try {
-              const {data} = await github.rest.packages.getPackageForUser({
-                username: "baruchavi", package_type: "container", package_name: "learnharness",
-              });
-              if (data.visibility !== "private") {
-                throw new Error("Refusing to publish: ghcr.io/baruchavi/learnharness must be private.");
-              }
-            } catch (error) {
-              if (error.status !== 404) throw error;
-              core.info("First publication: GHCR creates personal packages private by default.");
+            const {data} = await github.rest.packages.getPackageForUser({
+              username: "baruchavi", package_type: "container", package_name: "learnharness",
+            });
+            if (data.visibility !== "public") {
+              throw new Error("Expected the owner-approved public ghcr.io/baruchavi/learnharness package.");
             }
       - name: Sign in to GHCR
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'baruchavi/learnharness'
@@ -107,7 +102,7 @@ jobs:
           docker tag learnharness:verify "$image"
           docker push "$image"
           echo "Published $image" >> "$GITHUB_STEP_SUMMARY"
-      - name: Verify the published package is private
+      - name: Verify the published package is public
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'baruchavi/learnharness'
         uses: actions/github-script@v9
         with:
@@ -115,10 +110,10 @@ jobs:
             const {data} = await github.rest.packages.getPackageForUser({
               username: "baruchavi", package_type: "container", package_name: "learnharness",
             });
-            if (data.visibility !== "private") {
-              throw new Error("Published package is not private; do not activate the deployment.");
+            if (data.visibility !== "public") {
+              throw new Error("Published package does not match the owner-approved public visibility.");
             }
-            core.info("Verified ghcr.io/baruchavi/learnharness is private.");
+            core.info("Verified ghcr.io/baruchavi/learnharness is public. Application access is managed separately.");
       - name: Explain skipped publication
         if: github.event_name != 'pull_request' && (github.ref != 'refs/heads/main' || github.repository != 'baruchavi/learnharness')
         run: echo "Image verified locally. Publication requires main in baruchavi/learnharness." >> "$GITHUB_STEP_SUMMARY"

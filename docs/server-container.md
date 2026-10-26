@@ -73,22 +73,21 @@ disconnect does not cancel its active turn, but replacing the container ends
 in-flight work; only already-persisted records survive. Schedule upgrades between
 sessions. Multiple replicas require a separate storage and coordination design.
 
-## Private image publishing
+## Image publishing
 
 `.github/workflows/container.yml` verifies Linux AMD64 images on pull requests
 and main pushes. After verification, it publishes
 `ghcr.io/baruchavi/learnharness:sha-<full-source-commit>` only from `main` in
-`baruchavi/learnharness`. The owner chose to keep this source fork public while
-keeping the image private. Other repositories, PRs, and non-main manual runs
+`baruchavi/learnharness`. The owner approved public source and a public image,
+with application access restricted separately through Tailscale.
+Other repositories, PRs, and non-main manual runs
 cannot publish through this workflow.
 
-GHCR package visibility is separate from repository visibility. The workflow
-refuses to publish to an existing public package and verifies the package is
-private after publishing. New personal packages default to private. If the
-package already exists, grant this repository Actions write access in its package
-settings. Review inherited access permissions when associating a private package
-with public source; keep access limited to the owner, the publishing workflow,
-and the cluster's registry credential. Never make the image public.
+The workflow verifies the existing package has the approved public visibility
+before and after publishing. Anyone can pull the image without registry
+credentials; this does not grant access to a running application or its data.
+The image contains application code and dependencies, not learning records or
+provider keys. GitHub Actions still authenticates to push updates.
 
 The public fork can retain an `upstream` Git remote for updates. Learning data,
 keys, and private cluster manifests stay outside the public repository and image.
