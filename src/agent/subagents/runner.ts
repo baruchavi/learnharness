@@ -79,6 +79,8 @@ export interface JobRunnerDeps {
 	 *  EMPTY → undefined; runJob then refuses the spawn honestly instead
 	 *  of guessing a model. */
 	engineFor?: (role: ModelRole) => PiEngine | undefined;
+	/** Load dynamic gateway catalogs before synchronous engine resolution. */
+	prepareModels?: (role: ModelRole) => Promise<void>;
 	/** The search seam (search port wave, 2026-09-20): resolves the LIVE
 	 *  provider fresh per job — server/search.ts composition injected by
 	 *  the wiring; null = honestly unavailable (the researcher's web_search
@@ -200,7 +202,6 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 			jobStore.updateJob(jobId, { status: "error", error: `unknown kind ${job.kind}`, activity: "failed" });
 			return;
 		}
-		const engine = pickEngine(job.kind);
 		// The per-need refusal guards (BYOK 2026-09-22 / provider-key
 		// interlude 2026-09-25): no engine for the kind's tier, or the
 		// resolved engine's provider key gone — both refuse through the SAME
@@ -239,6 +240,15 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 								};
 			await finishJob(jobId, failure);
 		};
+		let engine: PiEngine | undefined;
+		try {
+			if (deps.prepareModels) await deps.prepareModels(KIND_ROLE[job.kind]);
+			if (!stillRunning(jobId)) return;
+			engine = pickEngine(job.kind);
+		} catch (err) {
+			await refuse(err instanceof Error ? err.message : "Model preparation failed.");
+			return;
+		}
 		if (!engine) {
 			const tier = ROLE_SLOT[KIND_ROLE[job.kind]];
 			const envelope = modelsNotConfigured([tier]);

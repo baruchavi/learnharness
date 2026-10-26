@@ -37,6 +37,8 @@ ownership on first use. Do not share the same state between running instances.
 | `LH_DATA_DIR` | `/var/lib/learnharness/data` | Sessions, graph, jobs, settings, prompt overrides |
 | `LH_AUTH_FILE` | `/var/lib/learnharness/auth.json` | Writable API-key record, created by Settings |
 | `CHROME_PATH` | `/usr/bin/chromium` | Headless demo verification |
+| `BIFROST_BASE_URL` | Unset | Server-side Bifrost gateway URL; accepts a regular HTTPS URL or cluster-internal HTTP Service URL |
+| `BIFROST_API_KEY` | Unset | Optional deployment-managed Bifrost virtual key; otherwise save it through Settings |
 
 Both data and credentials are under the same persistent volume, in separate
 paths. Keys saved through Settings are private plaintext files (mode 0600), not
@@ -47,6 +49,32 @@ but then their lifecycle belongs to the deployment's secret management.
 
 Do not set `LH_DESKTOP_SERVER` or `LH_DESKTOP_API_SECRET` in browser mode. Those
 variables require the trusted Electron request header, not a web login.
+
+## Bifrost gateway
+
+Set `BIFROST_BASE_URL` on the server, for example
+`http://bifrost.bifrost.svc.cluster.local:8080` inside Kubernetes, or your gateway's
+HTTPS address outside the cluster. Restart the server after changing it. The
+endpoint is deployment configuration; it cannot be entered or saved through the UI.
+Gateway roots and URLs ending in `/openai`, `/openai/v1`, or `/v1` are accepted.
+
+In Settings, add the **Bifrost** provider's virtual key, then select its models
+for the strong, cheap, and vision slots as usual. The key uses the existing
+credential file and environment precedence described above. Requests originate
+from the server, so the browser needs neither cluster DNS nor a Bifrost CORS entry.
+
+Discovery calls the gateway's native `/v1/models` endpoint with `x-bf-vk` and uses
+its reported metadata. Generation uses `/openai/chat/completions`, including
+streaming and tools. Models explicitly limited to other APIs are excluded.
+The integration targets Bifrost v2.3.1; discovery is cached for one minute and
+cleared when the key or endpoint changes. A restart reloads the catalog before
+running a configured chat or background job. Connection errors appear in model
+selection without hiding other providers.
+
+Missing prices and context limits appear as unknown. No token limit or reasoning
+level is invented when the gateway does not report it. Availability and virtual-key
+restrictions remain governed by Bifrost; configure its providers and permissions
+in the gateway before selecting a model here.
 
 ## Runtime checks
 

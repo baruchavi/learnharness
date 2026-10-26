@@ -122,12 +122,15 @@ export const AUTH_PROVIDER_KEYS: readonly AuthProviderInfo[] = [
 	{ id: "zai-coding-cn", envVar: "ZAI_CODING_CN_API_KEY", label: "Z.AI Coding CN" },
 ] as const;
 
-/** Every distinct env var a model-provider key rides in (the write side's
- *  writability check — see isProviderEnvVar below; also drives which
- *  PRESENT provider vars surface as status rows). */
-export const AUTH_PROVIDER_ENV_VARS: ReadonlySet<string> = new Set(AUTH_PROVIDER_KEYS.map((p) => p.envVar));
+/** App-owned gateways are separate from Pi's no-drift-pinned builtin list. */
+export const MODEL_PROVIDER_KEYS: readonly AuthProviderInfo[] = [
+	...AUTH_PROVIDER_KEYS,
+	{ id: "bifrost", envVar: "BIFROST_API_KEY", label: "Bifrost" },
+];
+/** Every model-provider key's env var, including app-owned gateways. */
+export const AUTH_PROVIDER_ENV_VARS: ReadonlySet<string> = new Set(MODEL_PROVIDER_KEYS.map((p) => p.envVar));
 
-/** Is this env-var name the key of SOME pi-ai model provider? */
+/** Is this env-var name a supported model-provider key? */
 export function isProviderEnvVar(envVar: string): boolean {
 	return AUTH_PROVIDER_ENV_VARS.has(envVar);
 }

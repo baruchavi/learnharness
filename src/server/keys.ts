@@ -41,7 +41,7 @@
 
 import {
 	AUTH_KEYS,
-	AUTH_PROVIDER_KEYS,
+	MODEL_PROVIDER_KEYS as AUTH_PROVIDER_KEYS,
 	AUTH_PROVIDER_ENV_VARS,
 	type AuthKeyInfo,
 	type AuthKeyStatus,

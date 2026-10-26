@@ -62,7 +62,7 @@ export function useModelCatalog(): { catalog: ModelCatalogResponse | undefined; 
  *  the honest-render precedent). Consumed by the stats bar: the same
  *  cached /api/models fetch the picker rides feeds the denominator. */
 export function catalogLimits(catalog: Pick<ModelCatalogResponse, "models">): Map<string, number> {
-	return new Map(catalog.models.map((m) => [`${m.provider}:${m.id}`, m.contextWindow]));
+	return new Map(catalog.models.filter((m) => m.contextWindow > 0).map((m) => [`${m.provider}:${m.id}`, m.contextWindow]));
 }
 
 /**
@@ -381,6 +381,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 					menuClass="flex w-[22rem] flex-col rounded-xl border bg-card p-2 text-xs shadow-xl"
 				>
 					{error && <div className="mb-1.5 text-destructive">{error}</div>}
+					{catalog?.providerErrors && <div role="alert" className="mb-1.5 text-destructive">{Object.values(catalog.providerErrors).join(" ")}</div>}
 					<ModelMenuList
 						models={catalog?.models}
 						effectiveId={effectiveId}
