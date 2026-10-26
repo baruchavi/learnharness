@@ -104,6 +104,7 @@ export function createBifrostAdapter(options: Options = {}) {
 		const task = Promise.resolve().then(async () => {
 			try {
 				const found = new Map<string, BifrostModel>();
+				const missingInput = new Set<string>();
 				let token = "";
 				const seen = new Set<string>();
 				for (;;) {
@@ -113,12 +114,44 @@ export function createBifrostAdapter(options: Options = {}) {
 					if (!response.ok) throw new DiscoveryError(`Bifrost model discovery failed (HTTP ${response.status}). Check the endpoint and virtual key.`);
 					const body = object(await response.json());
 					if (!Array.isArray(body.data)) throw new DiscoveryError("Bifrost returned an invalid model list.");
-					for (const entry of body.data) { const model = bifrostModel(entry, root); if (model) found.set(model.id, model); }
+					for (const entry of body.data) {
+						const model = bifrostModel(entry, root);
+						if (!model) continue;
+						found.set(model.id, model);
+						missingInput.delete(model.id);
+						if (!strings(object(object(entry).architecture).input_modalities).length) missingInput.add(model.id);
+					}
 					token = typeof body.next_page_token === "string" ? body.next_page_token : "";
 					if (!token) break;
 					if (seen.has(token) || seen.size >= 20) throw new DiscoveryError("Bifrost returned an invalid model pagination sequence.");
 					seen.add(token);
 				}
+				// Bifrost can know vision support in its parameters datasheet while
+				// omitting architecture from /v1/models. Supplement only models
+				// already returned by the key-scoped list; never expand access.
+				const queue = [...missingInput];
+				let next = 0;
+				await Promise.all(Array.from({ length: Math.min(4, queue.length) }, async () => {
+					while (next < queue.length && !signal.aborted) {
+						const id = queue[next++]!;
+						try {
+							const url = new URL(`${root}/api/models/parameters`);
+							// Native IDs include the routing provider; the datasheet
+							// endpoint accepts the upstream model name.
+							url.searchParams.set("model", id.slice(id.indexOf("/") + 1));
+							const response = await request(url, { headers: { accept: "application/json", "x-bf-vk": key }, signal, redirect: "error" });
+							if (!response.ok) continue;
+							const capabilities = object(await response.json());
+							const modalities = strings(capabilities.supported_modalities);
+							const input = modalities.filter((v): v is "text" | "image" => v === "text" || v === "image");
+							if (input.length) found.get(id)!.input = input;
+							else if (!modalities.length && capabilities.supports_vision === true) found.get(id)!.input = ["text", "image"];
+						} catch {
+							// Dashboard APIs may be restricted or unavailable. Keep
+							// the discovered model without asserting vision support.
+						}
+					}
+				}));
 				current();
 				if (stamp === generation) { models = [...found.values()]; error = undefined; loadedAt = now(); }
 			} catch (err) {

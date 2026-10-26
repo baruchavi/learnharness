@@ -64,7 +64,13 @@ credential file and environment precedence described above. Requests originate
 from the server, so the browser needs neither cluster DNS nor a Bifrost CORS entry.
 
 Discovery calls the gateway's native `/v1/models` endpoint with `x-bf-vk` and uses
-its reported metadata. Generation uses `/openai/chat/completions`, including
+its reported metadata. If input modalities are missing, it supplements only
+those discovered models through `/api/models/parameters?model=...`, using
+`supported_modalities` or an explicit `supports_vision: true`. The same virtual
+key is sent, with no dashboard credentials or permission changes. If that
+endpoint is restricted or unavailable, discovery still works and the models
+remain text-only unless their model-list metadata advertises image input.
+Existing model-list modalities take precedence. Generation uses `/openai/chat/completions`, including
 streaming and tools. Models explicitly limited to other APIs are excluded.
 The integration targets Bifrost v2.3.1; discovery is cached for one minute and
 cleared when the key or endpoint changes. A restart reloads the catalog before
@@ -104,7 +110,9 @@ sessions. Multiple replicas require a separate storage and coordination design.
 ## Image publishing
 
 `.github/workflows/container.yml` verifies Linux AMD64 images on pull requests
-and main pushes. After verification, it publishes
+and main pushes. It runs typecheck, tests, and lint once, then builds and checks
+the container. Desktop compatibility checks in `ci.yml` are manual-only for
+this fork. After verification, it publishes
 `ghcr.io/baruchavi/learnharness:sha-<full-source-commit>` only from `main` in
 `baruchavi/learnharness`. The owner approved public source and a public image,
 with application access restricted separately through Tailscale.
