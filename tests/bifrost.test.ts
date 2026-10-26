@@ -25,6 +25,7 @@ it("accepts external/internal gateway roots and documented API suffixes without 
 	assert.ok(MODEL_PROVIDER_KEYS.some((p) => p.id === "bifrost" && p.envVar === "BIFROST_API_KEY"));
 	assert.equal(isProviderEnvVar("BIFROST_API_KEY"), true);
 	assert.equal(isProviderEnvVar("BIFROST_BASE_URL"), false);
+	assert.equal(isProviderEnvVar("BIFROST_VISION_MODELS"), false);
 });
 
 it("uses reported model metadata, converts per-token pricing, and excludes non-chat/deprecated models", () => {
@@ -103,9 +104,9 @@ it("reports discovery/config failures without exposing keys and retries synchron
 	await missing.refresh(); assert.match(missing.status()!, /BIFROST_BASE_URL/);
 });
 
-it("streams image input and a real OpenAI-compatible tool call after capability discovery, without inventing a token cap", async () => {
-	const adapter = createBifrostAdapter({ env: baseEnv, fetch: async (url) => Response.json(String(url).includes("/api/models/parameters")
-		? { supported_modalities: ["text", "image"] } : { data: [{ id: "custom/my-model" }] }) });
+it("streams image input and a real OpenAI-compatible tool call with the vision override, without inventing a token cap", async () => {
+	const adapter = createBifrostAdapter({ env: () => ({ ...baseEnv(), BIFROST_VISION_MODELS: "custom/my-model" }),
+		fetch: async () => Response.json({ data: [{ id: "custom/my-model" }] }) });
 	await adapter.refresh();
 	const models = createModels(); models.setProvider(adapter.provider);
 	let wire: Record<string, unknown> | undefined;
@@ -134,76 +135,72 @@ it("streams image input and a real OpenAI-compatible tool call after capability 
 	assert.ok(JSON.stringify(wire?.messages).includes("data:image/png;base64,fixture-base64"));
 });
 
-it("makes DeepSeek Flash eligible for the vision picker from Bifrost's separate capability metadata", async () => {
+it("makes Flash eligible for vision using only the virtual-key model list, even when dashboard APIs reject access", async () => {
 	let calls = 0;
-	const adapter = createBifrostAdapter({ env: () => ({ ...baseEnv(), BIFROST_BASE_URL: "https://gateway.example.invalid/prefix/openai" }), fetch: async (input, init) => {
+	const adapter = createBifrostAdapter({ env: () => ({ ...baseEnv(), BIFROST_BASE_URL: "https://gateway.example.invalid/prefix/openai",
+		BIFROST_VISION_MODELS: "deepseek/deepseek-flash" }), fetch: async (input, init) => {
 		calls++;
 		const url = new URL(String(input));
+		if (url.pathname !== "/prefix/v1/models") return new Response(null, { status: 401 });
 		assert.equal(new Headers(init?.headers).get("x-bf-vk"), "fixture-virtual-key");
 		assert.equal(init?.redirect, "error");
-		if (url.pathname === "/prefix/v1/models") return Response.json({ data: [{ id: "deepseek/deepseek-flash", context_length: 1048576, max_output_tokens: 393216 }] });
-		assert.equal(url.pathname, "/prefix/api/models/parameters");
-		assert.equal(url.searchParams.get("model"), "deepseek-flash");
-		return Response.json({ supports_vision: true, supported_modalities: ["text", "image"], base_model: "deepseek-flash" });
+		return Response.json({ data: [{ id: "deepseek/deepseek-flash", context_length: 1048576, max_output_tokens: 393216 }] });
 	} });
 	await Promise.all([adapter.refresh(), adapter.refresh()]);
 	const models = adapter.provider.getModels();
-	assert.equal(models.length, 1, "capabilities cannot introduce a model outside the key-scoped list");
+	assert.equal(models.length, 1);
 	assert.equal(models[0]?.id, "deepseek/deepseek-flash");
 	assert.deepEqual(models[0]?.input, ["text", "image"]);
 	assert.equal(models[0]?.contextWindow, 1048576);
 	assert.equal(toModelDto(models[0]!).input.includes("image"), true, "the vision picker's exact eligibility rule");
 	await adapter.refresh();
-	assert.equal(calls, 2, "both discovery responses share the existing catalog cache");
+	assert.equal(calls, 1, "no dashboard API lookup or extra cached discovery request");
 });
 
-it("preserves explicit model-list modalities and accepts only affirmative fallback capabilities", async () => {
+it("matches exact discovered IDs, permits explicit text-only overrides, and preserves unlisted model capabilities", async () => {
 	const entries = [metadata, { id: "custom/text", architecture: { input_modalities: ["text"] } },
-		{ id: "custom/flag" }, { id: "custom/no-vision" }, { id: "custom/modalities-win" }];
-	const queried: string[] = [];
-	const adapter = createBifrostAdapter({ env: baseEnv, fetch: async (input) => {
-		const url = new URL(String(input));
-		if (url.pathname === "/v1/models") return Response.json({ data: entries });
-		const name = url.searchParams.get("model")!; queried.push(name);
-		return Response.json(name === "flag" ? { supports_vision: true } : name === "modalities-win"
-			? { supported_modalities: ["text"], supports_vision: true } : { supports_vision: "true" });
-	} });
+		{ id: "deepseek/deepseek-flash" }, { id: "custom/deepseek-flash" }, { id: "custom/other" },
+		{ id: "custom/deprecated", is_deprecated: true }, { id: "custom/embedding", supported_methods: ["embeddings"] }];
+	const adapter = createBifrostAdapter({ env: () => ({ ...baseEnv(), BIFROST_VISION_MODELS:
+		" custom/text, deepseek/deepseek-flash,custom/text, ,custom/missing,custom/deprecated,custom/embedding " }),
+		fetch: async () => Response.json({ data: entries }) });
 	await adapter.refresh();
-	assert.deepEqual(queried.sort(), ["flag", "modalities-win", "no-vision"]);
-	assert.deepEqual(adapter.provider.getModels().filter((m) => m.input.includes("image")).map((m) => m.id), [metadata.id, "custom/flag"]);
+	const models = adapter.provider.getModels();
+	assert.deepEqual(models.filter((m) => m.input.includes("image")).map((m) => m.id), [metadata.id, "custom/text", "deepseek/deepseek-flash"]);
+	assert.equal(models.length, 5, "overrides cannot introduce inaccessible, deprecated, or unsupported models");
+	assert.deepEqual(models.find((m) => m.id === "custom/text")?.input, ["text", "image"], "duplicate IDs do not duplicate image modalities");
 });
 
-it("keeps discovery usable when capability metadata is restricted, invalid, or unavailable", async () => {
-	for (const fallback of [() => new Response("private details", { status: 401 }), () => new Response(null, { status: 404 }),
-		() => new Response("invalid json"), () => Response.json({ supported_modalities: {}, supports_vision: false }),
-		() => { throw new Error("fixture-virtual-key"); }]) {
-		const adapter = createBifrostAdapter({ env: baseEnv, fetch: async (url) => String(url).includes("/v1/models")
-			? Response.json({ data: [{ id: "custom/unknown" }] }) : fallback() });
-		await adapter.refresh();
-		assert.equal(adapter.status(), undefined);
-		assert.deepEqual(adapter.provider.getModels().map((m) => ({ id: m.id, input: m.input })), [{ id: "custom/unknown", input: ["text"] }]);
-	}
-});
-
-it("discards late capability results after key rotation", async () => {
-	const env = baseEnv();
+it("clears cached overrides on configuration changes and never restores an older in-flight catalog", async () => {
+	const env = { ...baseEnv(), BIFROST_VISION_MODELS: "deepseek/deepseek-flash" };
 	let finish!: (response: Response) => void;
 	let started!: () => void;
 	const ready = new Promise<void>((resolve) => { started = resolve; });
 	const held = new Promise<Response>((resolve) => { finish = resolve; });
-	const adapter = createBifrostAdapter({ env: () => env, fetch: async (url, init) => {
-		if (String(url).includes("/api/models/parameters")) { started(); return held; }
-		return Response.json({ data: new Headers(init?.headers).get("x-bf-vk") === "fixture-virtual-key" ? [{ id: "deepseek/deepseek-flash" }] : [metadata] });
+	let calls = 0;
+	const response = () => Response.json({ data: [{ id: "deepseek/deepseek-flash" }] });
+	const adapter = createBifrostAdapter({ env: () => env, fetch: async () => {
+		calls++;
+		if (calls === 1) { started(); return held; }
+		return response();
 	} });
 	const first = adapter.refresh(); await ready;
-	env.BIFROST_API_KEY = "rotated-key";
+	env.BIFROST_VISION_MODELS = "";
 	await adapter.refresh();
-	finish(Response.json({ supports_vision: true })); await first;
-	assert.deepEqual(adapter.provider.getModels().map((m) => m.id), [metadata.id]);
+	finish(response()); await first;
+	assert.deepEqual(adapter.provider.getModels()[0]?.input, ["text"]);
+	env.BIFROST_VISION_MODELS = "deepseek/deepseek-flash";
+	assert.deepEqual(adapter.provider.getModels(), [], "configuration changes immediately invalidate cached models");
+	await adapter.refresh();
+	assert.deepEqual(adapter.provider.getModels()[0]?.input, ["text", "image"]);
+	env.BIFROST_VISION_MODELS = "";
+	await adapter.refresh();
+	assert.deepEqual(adapter.provider.getModels()[0]?.input, ["text"]);
+	assert.equal(calls, 4, "override changes refresh despite the one-minute TTL");
 });
 
 it("warms the application catalog after restart, validates slot choices, and keeps unknown costs honest", async (t) => {
-	const oldEnv = { BIFROST_BASE_URL: process.env.BIFROST_BASE_URL, BIFROST_API_KEY: process.env.BIFROST_API_KEY };
+	const oldEnv = { BIFROST_BASE_URL: process.env.BIFROST_BASE_URL, BIFROST_API_KEY: process.env.BIFROST_API_KEY, BIFROST_VISION_MODELS: process.env.BIFROST_VISION_MODELS };
 	const oldFetch = globalThis.fetch;
 	t.after(() => {
 		for (const [key, value] of Object.entries(oldEnv)) {
@@ -212,13 +209,14 @@ it("warms the application catalog after restart, validates slot choices, and kee
 		globalThis.fetch = oldFetch;
 		bifrostAdapter().provider.getModels();
 	});
-	Object.assign(process.env, baseEnv());
+	Object.assign(process.env, baseEnv(), { BIFROST_VISION_MODELS: "custom/unknown" });
 	globalThis.fetch = async () => Response.json({ data: [metadata, { id: "custom/unknown" }] });
 	await refreshConnectionCatalog("bifrost");
 	const catalog = modelCatalog();
 	assert.ok(catalog.providers.some((p) => p.id === "bifrost" && p.keyPresent));
 	assert.equal(catalog.models.find((m) => m.id === metadata.id && m.provider === "bifrost")?.cost.input, 3);
 	assert.equal(catalog.models.find((m) => m.id === "custom/unknown")?.costKnown, false);
+	assert.equal(catalog.models.find((m) => m.id === "custom/unknown")?.input.includes("image"), true);
 	assert.equal(catalogContextLimits().get(`bifrost:${metadata.id}`), 200_000);
 	assert.equal(catalogContextLimits().has("bifrost:custom/unknown"), false);
 	assert.deepEqual(validateModelsSettings({ strong: { model: { provider: "bifrost", id: metadata.id } } }), { ok: true });
