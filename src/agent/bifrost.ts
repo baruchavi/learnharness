@@ -70,7 +70,7 @@ interface Options {
 	now?: () => number;
 }
 
-/** One controller is shared across Next route bundles. A key/endpoint change
+/** One controller is shared across Next route bundles. A configuration change
  * clears the catalog immediately; an old in-flight refresh cannot republish it. */
 export function createBifrostAdapter(options: Options = {}) {
 	const env = options.env ?? (() => process.env);
@@ -82,7 +82,9 @@ export function createBifrostAdapter(options: Options = {}) {
 	let controller: AbortController | undefined;
 	function current() {
 		const values = env(), key = values.BIFROST_API_KEY?.trim(), raw = values.BIFROST_BASE_URL?.trim();
-		const next = createHash("sha256").update(JSON.stringify([raw, key])).digest("hex");
+		const vision = values.BIFROST_VISION_MODELS ?? "";
+		const visionModels = new Set(vision.split(",").map((id) => id.trim()).filter(Boolean));
+		const next = createHash("sha256").update(JSON.stringify([raw, key, vision])).digest("hex");
 		if (next !== scope) {
 			controller?.abort(); scope = next; generation++; models = []; error = undefined; loadedAt = -Infinity; pending = undefined;
 		}
@@ -91,10 +93,10 @@ export function createBifrostAdapter(options: Options = {}) {
 			if (!raw) error = "Set BIFROST_BASE_URL in the server environment to connect Bifrost.";
 			else try { root = bifrostRoot(raw); } catch (err) { error = (err as Error).message; }
 		}
-		return { key, root };
+		return { key, root, visionModels };
 	}
 	async function refresh(): Promise<void> {
-		const { key, root } = current();
+		const { key, root, visionModels } = current();
 		if (!key || !root) return;
 		if (pending) return pending;
 		if (now() - loadedAt < (error ? 5_000 : TTL_MS)) return;
@@ -104,7 +106,6 @@ export function createBifrostAdapter(options: Options = {}) {
 		const task = Promise.resolve().then(async () => {
 			try {
 				const found = new Map<string, BifrostModel>();
-				const missingInput = new Set<string>();
 				let token = "";
 				const seen = new Set<string>();
 				for (;;) {
@@ -117,41 +118,16 @@ export function createBifrostAdapter(options: Options = {}) {
 					for (const entry of body.data) {
 						const model = bifrostModel(entry, root);
 						if (!model) continue;
+						// Operator-confirmed capability override; IDs must match
+						// the key-scoped model list exactly. Never add a model.
+						if (visionModels.has(model.id) && !model.input.includes("image")) model.input = [...model.input, "image"];
 						found.set(model.id, model);
-						missingInput.delete(model.id);
-						if (!strings(object(object(entry).architecture).input_modalities).length) missingInput.add(model.id);
 					}
 					token = typeof body.next_page_token === "string" ? body.next_page_token : "";
 					if (!token) break;
 					if (seen.has(token) || seen.size >= 20) throw new DiscoveryError("Bifrost returned an invalid model pagination sequence.");
 					seen.add(token);
 				}
-				// Bifrost can know vision support in its parameters datasheet while
-				// omitting architecture from /v1/models. Supplement only models
-				// already returned by the key-scoped list; never expand access.
-				const queue = [...missingInput];
-				let next = 0;
-				await Promise.all(Array.from({ length: Math.min(4, queue.length) }, async () => {
-					while (next < queue.length && !signal.aborted) {
-						const id = queue[next++]!;
-						try {
-							const url = new URL(`${root}/api/models/parameters`);
-							// Native IDs include the routing provider; the datasheet
-							// endpoint accepts the upstream model name.
-							url.searchParams.set("model", id.slice(id.indexOf("/") + 1));
-							const response = await request(url, { headers: { accept: "application/json", "x-bf-vk": key }, signal, redirect: "error" });
-							if (!response.ok) continue;
-							const capabilities = object(await response.json());
-							const modalities = strings(capabilities.supported_modalities);
-							const input = modalities.filter((v): v is "text" | "image" => v === "text" || v === "image");
-							if (input.length) found.get(id)!.input = input;
-							else if (!modalities.length && capabilities.supports_vision === true) found.get(id)!.input = ["text", "image"];
-						} catch {
-							// Dashboard APIs may be restricted or unavailable. Keep
-							// the discovered model without asserting vision support.
-						}
-					}
-				}));
 				current();
 				if (stamp === generation) { models = [...found.values()]; error = undefined; loadedAt = now(); }
 			} catch (err) {

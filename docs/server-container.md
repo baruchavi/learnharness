@@ -39,6 +39,7 @@ ownership on first use. Do not share the same state between running instances.
 | `CHROME_PATH` | `/usr/bin/chromium` | Headless demo verification |
 | `BIFROST_BASE_URL` | Unset | Server-side Bifrost gateway URL; accepts a regular HTTPS URL or cluster-internal HTTP Service URL |
 | `BIFROST_API_KEY` | Unset | Optional deployment-managed Bifrost virtual key; otherwise save it through Settings |
+| `BIFROST_VISION_MODELS` | Unset | Comma-separated exact Bifrost model IDs to mark as image-capable when gateway metadata is incomplete |
 
 Both data and credentials are under the same persistent volume, in separate
 paths. Keys saved through Settings are private plaintext files (mode 0600), not
@@ -64,16 +65,19 @@ credential file and environment precedence described above. Requests originate
 from the server, so the browser needs neither cluster DNS nor a Bifrost CORS entry.
 
 Discovery calls the gateway's native `/v1/models` endpoint with `x-bf-vk` and uses
-its reported metadata. If input modalities are missing, it supplements only
-those discovered models through `/api/models/parameters?model=...`, using
-`supported_modalities` or an explicit `supports_vision: true`. The same virtual
-key is sent, with no dashboard credentials or permission changes. If that
-endpoint is restricted or unavailable, discovery still works and the models
-remain text-only unless their model-list metadata advertises image input.
-Existing model-list modalities take precedence. Generation uses `/openai/chat/completions`, including
+its reported metadata. When the gateway omits vision support, set
+`BIFROST_VISION_MODELS=deepseek/deepseek-flash` and restart the server. Use exact,
+provider-prefixed IDs from `/api/models`; multiple IDs are comma-separated.
+This explicit operator assertion adds image input even when gateway metadata
+says text-only. It applies only to discovered, supported models; it cannot grant
+access to models outside the virtual key's catalog. Unlisted models retain their
+reported capabilities. The setting stays in the deployment environment and is
+not editable through the key API or UI.
+
+No dashboard API requests or dashboard credentials are used. Generation uses `/openai/chat/completions`, including
 streaming and tools. Models explicitly limited to other APIs are excluded.
 The integration targets Bifrost v2.3.1; discovery is cached for one minute and
-cleared when the key or endpoint changes. A restart reloads the catalog before
+cleared when the key, endpoint, or vision override changes. A restart reloads the catalog before
 running a configured chat or background job. Connection errors appear in model
 selection without hiding other providers.
 
