@@ -704,6 +704,8 @@ export function abortExtraction(chatId: string): boolean {
 // ─── the pipeline ───────────────────────────────────────────────────────────
 
 export interface ExtractionModels {
+	/** Load dynamic catalogs before the stage engine readiness gate. */
+	prepareModels?: (role: ModelRole) => Promise<void>;
 	/** Test seam: a scripted engine per stage — checked FIRST, ahead of the
 	 *  engineFor chain (production wires no direct values). */
 	extractor?: PiEngine;
@@ -1111,6 +1113,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 			// (2026-09-25): the write channel needs extractor + auditor
 			// engines AND their providers' keys; a refusal lands BEFORE any
 			// stage runs (typed — the trigger skips, routes surface 503).
+			if (deps.prepareModels) await Promise.all([deps.prepareModels("extractor"), deps.prepareModels("auditor")]);
 			refuseIfStagesUnready();
 			const covered = coverageOf(record.messages, graphStore.readCoverage(), chatId);
 			if (covered.uncovered.length === 0) {
@@ -1418,6 +1421,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		if (inFlight.has(id)) throw new NotesImportError("busy", { nodes: 0, chains: 0 }, "This file is already being imported. Try again when it finishes.");
 		inFlight.add(id);
 		try {
+			if (deps.prepareModels) await Promise.all([deps.prepareModels("extractor"), deps.prepareModels("auditor")]);
 			const importedAt = new Date().toISOString();
 			graphStore.upsertSource({ id, filePath: input.filePath, importedAt });
 			return await runNotesExtraction({ id, ...input, importedAt });

@@ -4,6 +4,7 @@
  */
 import { calculateCost, type Usage } from "@earendil-works/pi-ai";
 import { piModels } from "../agent/models.ts";
+import type { BifrostModel } from "../agent/bifrost.ts";
 import type { CallUsage, ChatRecord, JobRecord, TurnUsage } from "../core/contracts.ts";
 import { isSubscriptionModel, sessionCost as foldSessionCost, turnCost as foldTurnCost, jobCost as foldJobCost } from "../core/prices.ts";
 
@@ -16,6 +17,12 @@ function catalogModel(id: string) {
 export function callCost(call: Partial<CallUsage>, modelId: string): number | null {
 	const model = catalogModel(modelId);
 	if (!model || call.inputTokens === undefined || call.outputTokens === undefined) return null;
+	if (model.provider === "bifrost") {
+		const rates = (model as BifrostModel).bifrostRates;
+		if (rates.input === undefined || rates.output === undefined || (call.cacheWrite1hTokens ?? 0) > 0 ||
+			((call.cacheReadTokens ?? 0) > 0 && rates.cacheRead === undefined) ||
+			((call.cacheWriteTokens ?? 0) > 0 && rates.cacheWrite === undefined)) return null;
+	}
 	const input = call.inputTokens;
 	const output = call.outputTokens;
 	const cacheRead = call.cacheReadTokens ?? 0;

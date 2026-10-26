@@ -20,12 +20,14 @@
 import { clampThinkingLevel, getSupportedThinkingLevels, type Api, type Model } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { piModels } from "../agent/models.ts";
+import { bifrostAdapter, type BifrostModel } from "../agent/bifrost.ts";
 import { chatGPTConnected, chatGPTModel, chatGPTModels, refreshChatGPTModels } from "../agent/chatgpt-bridge.ts";
 import { NATIVE_SUBSCRIPTIONS } from "../core/contracts/subscriptions.ts";
 import { nativeSubscriptionId, nativeSubscriptionConnected, nativeSubscriptionModel, nativeSubscriptionModels, refreshSubscriptionModels } from "../agent/subscription-bridge.ts";
 
 export async function refreshConnectionCatalog(provider?: string): Promise<void> {
 	await Promise.all([
+		!provider || provider === "bifrost" ? bifrostAdapter().refresh() : Promise.resolve(),
 		!provider || provider === "chatgpt" ? refreshChatGPTModels(piModels().getModels("openai").filter((m): m is Model<"openai-responses"> => m.api === "openai-responses")) : Promise.resolve(),
 		!provider || nativeSubscriptionId(provider) ? refreshSubscriptionModels() : Promise.resolve(),
 	]);
@@ -47,7 +49,7 @@ import type {
 	SlotPins,
 } from "../core/contracts/models.ts";
 import type { EffectiveModelSpec, EffectiveSlot } from "../core/settings-resolution.ts";
-import { AUTH_PROVIDER_KEYS } from "../core/auth-keys.ts";
+import { MODEL_PROVIDER_KEYS as AUTH_PROVIDER_KEYS } from "../core/auth-keys.ts";
 import { BACKGROUND_MODEL_ROLES, MODEL_SLOTS, type BackgroundModelRole, type ModelSlotName, type ModelsSettings } from "../core/settings.ts";
 
 /** The picker's client-safe model entry (contract: core/contracts/models.ts). */
@@ -169,6 +171,7 @@ export function toModelDto(model: Model<Api>): ModelDto {
 		},
 		contextWindow: model.contextWindow,
 		maxTokens: model.maxTokens,
+		...(model.provider === "bifrost" && ((model as BifrostModel).bifrostRates.input === undefined || (model as BifrostModel).bifrostRates.output === undefined) ? { costKnown: false } : {}),
 	};
 }
 
@@ -185,7 +188,7 @@ export function catalogContextLimits(): Map<string, number> {
 	for (const provider of piModels().getProviders()) {
 		if (!keyed.has(provider.id)) continue;
 		for (const model of piModels().getModels(provider.id)) {
-			index.set(`${provider.id}:${model.id}`, model.contextWindow);
+			if (model.contextWindow > 0) index.set(`${provider.id}:${model.id}`, model.contextWindow);
 		}
 	}
 	for (const model of [...chatGPTModels(), ...nativeSubscriptionModels()]) index.set(`${model.provider}:${model.id}`, model.contextWindow);
@@ -207,6 +210,7 @@ export function modelCatalog(): ModelCatalogResponse {
 		.concat([...chatGPTModels(), ...nativeSubscriptionModels()].map(toModelDto));
 	return {
 		models,
+		...(bifrostAdapter().status() ? { providerErrors: { bifrost: bifrostAdapter().status()! } } : {}),
 		defaults: catalogDefaults(),
 		rolePins: catalogRolePins(),
 		slots: catalogSlots(),

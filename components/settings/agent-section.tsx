@@ -104,6 +104,7 @@ interface SegmentInfo {
 /** The GET /api/models response fields this section consumes. */
 interface ModelsBody {
 	models: ModelCatalogEntry[];
+	providerErrors?: Record<string, string>;
 	/** The three tiers' RESOLVED pins (BYOK: NULL per unset tier — no
 	 *  factory floor) — machinery only (the thinking list fallback); the
 	 *  rows' displays read the record override, never a phantom pin. */
@@ -304,6 +305,7 @@ export function AgentSection({
 	onCompactionChange: (next: CompactionSettings) => void;
 }) {
 	const [catalog, setCatalog] = useState<ModelCatalogEntry[] | null>(null);
+	const [providerErrors, setProviderErrors] = useState<Record<string, string>>({});
 	/** The three tiers' resolved pins — GET /api/models `slots`. The rows'
 	 *  Default hints and thinking lists resolve from it. */
 	const [slots, setSlots] = useState<ModelsBody["slots"] | null>(null);
@@ -356,6 +358,7 @@ export function AgentSection({
 			.then((body: ModelsBody) => {
 				if (!modelsMounted.current || request !== modelsRequest.current) return;
 				setCatalog(body.models);
+				setProviderErrors(body.providerErrors ?? {});
 				setSlots(body.slots);
 			})
 			.catch(() => { if (modelsMounted.current && request === modelsRequest.current) setCatalog(null); });
@@ -615,6 +618,7 @@ export function AgentSection({
 	return (
 		<>
 			<SettingsGroup label="Models" testid="group-models">
+				{Object.values(providerErrors).map((message) => <p key={message} role="alert" className="text-xs text-destructive">{message}</p>)}
 				{MODEL_SLOTS.map((slot) => {
 					const override = models?.[slot];
 					const modelId = override?.model?.id ?? "";

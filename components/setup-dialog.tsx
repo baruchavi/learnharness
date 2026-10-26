@@ -61,6 +61,7 @@ const SLOT_ORDER: readonly ModelSlotName[] = ["strong", "cheap", "vision"];
 
 /** The GET /api/models response fields the flow consumes. */
 interface ModelsBody {
+	providerErrors?: Record<string, string>;
 	models: ModelCatalogEntry[];
 	providers: { id: string; keyPresent: boolean }[];
 	/** The three tiers' RESOLVED pins (BYOK: NULL per unset tier) — the
@@ -455,6 +456,7 @@ export function SetupDialog({
 					</div>
 				) : (
 					<div className="flex flex-col gap-4 overflow-y-auto px-6 py-5" data-testid="setup-stage-pickers">
+						{Object.values(body?.providerErrors ?? {}).map((message) => <p key={message} role="alert" className="text-xs text-destructive">{message}</p>)}
 						<p className="text-xs text-muted-foreground">
 							Pick the model for each tier. All three are required before chats can start.
 						</p>

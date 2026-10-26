@@ -7,6 +7,7 @@ import {
 	type TeachingAgent,
 } from "../agent/teacher-agent.ts";
 import { piEngineForSpec, type PiEngine } from "../agent/models.ts";
+import { bifrostAdapter } from "../agent/bifrost.ts";
 import { connectionBackgroundAllowed, connectionScopeCurrent, isSubscriptionProvider } from "../agent/subscription-connections.ts";
 import { nativeSubscriptionError } from "../agent/subscription-stream.ts";
 import { chatGPTStreamError } from "../agent/chatgpt-stream.ts";
@@ -80,6 +81,7 @@ import type {CallUsage, SteerMessage} from "../core/contracts.ts";
  */
 
 const jobRunner = createJobRunner({
+	prepareModels: prepareRoleModels,
 	chatStore: stores.chatStore,
 	jobStore: stores.jobStore,
 	deliver: deliverJobResult,
@@ -105,6 +107,7 @@ const jobRunner = createJobRunner({
  *  quiz-triggered session runs (turn-service) and notes imports
  *  (/api/graph/import) hit the same single-flight registry. */
 export const extraction = createExtractionPipeline({
+	prepareModels: prepareRoleModels,
 	...stores,
 	// BYOK (owner, 2026-09-22): the extraction stages resolve the chain —
 	// role override → slot → NOTHING — read FRESH per stage call; an empty
@@ -138,6 +141,14 @@ setTurnRunner(async (chatId, input) => {
 function resolveEngine(role: ModelRole): PiEngine | undefined {
 	const spec = resolveRoleSpec(role, stores.settingsStore.readSettings());
 	return spec ? piEngineForSpec(spec) : undefined;
+}
+
+async function prepareRoleModels(role: ModelRole): Promise<void> {
+	if (resolveRoleSpec(role, stores.settingsStore.readSettings())?.provider === "bifrost") {
+		await refreshConnectionCatalog("bifrost");
+		const failure = bifrostAdapter().status();
+		if (failure) throw new Error(failure);
+	}
 }
 
 setJobRespawn((jobId) => void jobRunner.runJob(jobId));
@@ -217,6 +228,11 @@ export async function handleChatInput(
 		const envelope = providerKeyMissingEnvelope(conversation.provider, ["strong"]);
 		console.info(`[chat ${chatId}] turn refused — ${JSON.stringify(envelope)}`);
 		return Response.json(envelope, { status: 503 });
+	}
+	if (conversation.provider === "bifrost") {
+		await refreshConnectionCatalog("bifrost");
+		const failure = bifrostAdapter().status();
+		if (failure) return Response.json({ error: failure }, { status: 503 });
 	}
 
 	// THE COMPACTION GATE (owner round 14, 2026-10-05 — the structural

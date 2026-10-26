@@ -22,6 +22,8 @@ export interface ModelCatalogEntry {
 	 * picker lists exactly these; anything else is a lie. */
 	supportedLevels: ThinkingLevel[];
 	cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
+	/** Absent means the normal catalog rates; false means unreported gateway prices. */
+	costKnown?: boolean;
 	contextWindow: number;
 	maxTokens: number;
 }
@@ -55,6 +57,7 @@ export type SlotPins = Record<
 /** GET /api/models response. */
 export interface ModelCatalogResponse {
 	models: ModelCatalogEntry[];
+	providerErrors?: Record<string, string>;
 	/** The conversation agents' resolved default — NULL when the
 	 *  conversation chain is empty (no factory floor; the turn gate
 	 *  refuses with 503 models_not_configured). */

@@ -38,6 +38,7 @@ import {
 	effectiveSettings,
 	promptOverrides,
 	readSettingsRecord,
+	refreshConnectionCatalog,
 	validateChatSettings,
 	validateModelsSettings,
 	writeSettingsRecord,
@@ -64,6 +65,7 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 		return Response.json({ error: parsed.error }, { status: 400 });
 	}
 	let agentHealed: AgentSettings | undefined;
+	if (section === "models" || section === "chat" || section === "agent") await refreshConnectionCatalog("bifrost");
 
 	// Section-specific cross-validation (against the catalog / the prompt
 	// store) — the parsers only see shapes.
