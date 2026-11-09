@@ -185,6 +185,71 @@ body {
 	font-family: var(--font-ui);
 }
 
+.lh-app-viewport {
+	height: 100dvh;
+}
+
+/* Phone-only layout: navigation floats above the lesson, and the dock
+   stays usable in the smaller visual viewport when the keyboard opens. */
+@media (max-width: 767px) {
+	html:not(.lh-electron) .lh-app-viewport {
+		height: var(--lh-app-height, 100dvh);
+	}
+	html:not(.lh-electron) .lh-sidebar {
+		position: fixed;
+		inset: 0 auto 0 0;
+		z-index: 40;
+		height: var(--lh-app-height, 100dvh);
+		max-width: calc(100vw - 2rem);
+	}
+	html:not(.lh-electron) .lh-sidebar > div {
+		max-width: calc(100vw - 2rem);
+		padding-top: env(safe-area-inset-top, 0px);
+		padding-bottom: env(safe-area-inset-bottom, 0px);
+	}
+	.lh-safe-bottom {
+		padding-bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
+	}
+	.lh-session-dock {
+		max-height: calc(var(--lh-app-height, 100dvh) - 4.5rem);
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		pointer-events: auto;
+	}
+	/* Keep the phone from zooming into small text fields on focus. */
+	input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
+	textarea, select {
+		font-size: max(16px, var(--lh-prose-size));
+	}
+	textarea.lh-input {
+		max-height: min(8rem, 20dvh);
+	}
+	.lh-prose {
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+	.lh-prose pre, .lh-prose [data-streamdown="code-block"],
+	.lh-prose [data-testid="md-table"], .lh-prose .katex-display {
+		max-width: 100%;
+		overflow-x: auto;
+	}
+	[data-testid="model-control"] {
+		min-width: 0;
+		max-width: 100%;
+		flex-wrap: wrap;
+	}
+	[data-testid="model-control"] > button {
+		min-width: 0;
+		max-width: 100%;
+		min-height: 2rem;
+	}
+	[data-testid="model-control"] > button > span:first-child {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+}
+
 /* Teaching prose (the markdown renderer's container gets .lh-prose):
    Source Sans 3 with the size/leading tokens; emphasis color bound to
    the settings-ready tokens. */

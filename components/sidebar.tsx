@@ -24,10 +24,9 @@ import { kbdEventForAction } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
 
 /**
- * Toggleable sidebar — NOT a modal drawer: no backdrop, no focus theft. It
- * sits inline next to the content and can stay open while working in a
- * session. Open state persists across pages (provider lives in the root
- * layout) and across reloads (localStorage).
+ * Desktop sidebar sits inline and preserves its preference across pages
+ * and reloads. On phones it is a temporary drawer over the lesson, closed
+ * initially and after navigation, with its own non-persisted state.
  */
 
 const STORAGE_KEY = "lh:sidebar-open";
@@ -73,8 +72,10 @@ declare global {
 	}
 }
 
-const SidebarContext = createContext<{ open: boolean; toggle: () => void }>({
+const SidebarContext = createContext<{ open: boolean; mobile: boolean; closeMobile: () => void; toggle: () => void }>({
 	open: false,
+	mobile: false,
+	closeMobile: () => {},
 	toggle: () => {},
 });
 
@@ -95,6 +96,69 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 	const [open, setOpen] = useState(false);
 	const [narrow, setNarrow] = useState(false);
 	const [mounted, setMounted] = useState(false);
+	const [mobile, setMobile] = useState(false);
+	const [mobileOpen, setMobileOpen] = useState(false);
+	const pathname = usePathname();
+	const closeMobile = useCallback(() => setMobileOpen(false), []);
+
+	// Phone navigation is temporary and never overwrites the desktop preference.
+	useEffect(() => {
+		const query = window.matchMedia("(max-width: 767px)");
+		const update = () => {
+			setMobile(!IS_ELECTRON && query.matches);
+			setMobileOpen(false);
+		};
+		update();
+		query.addEventListener("change", update);
+		return () => query.removeEventListener("change", update);
+	}, []);
+	useEffect(() => closeMobile(), [pathname, closeMobile]);
+
+	// visualViewport also shrinks when a phone's software keyboard is open.
+	useEffect(() => {
+		if (!mobile) return;
+		const viewport = window.visualViewport;
+		const update = () => document.documentElement.style.setProperty("--lh-app-height", `${viewport?.height ?? window.innerHeight}px`);
+		update();
+		viewport?.addEventListener("resize", update);
+		window.addEventListener("resize", update);
+		return () => {
+			viewport?.removeEventListener("resize", update);
+			window.removeEventListener("resize", update);
+			document.documentElement.style.removeProperty("--lh-app-height");
+		};
+	}, [mobile]);
+
+	useEffect(() => {
+		if (!mobile || !mobileOpen) return;
+		const previous = document.activeElement as HTMLElement | null;
+		const sidebar = document.getElementById("session-sidebar");
+		const focusable = () => Array.from(sidebar?.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), [tabindex="0"]') ?? []).filter((el) => el.getClientRects().length > 0);
+		const frame = requestAnimationFrame(() => sidebar?.querySelector<HTMLButtonElement>('[aria-label="Close sidebar"]')?.focus());
+		const onKey = (event: KeyboardEvent) => {
+			if (event.key === "Escape") {
+				event.preventDefault();
+				event.stopImmediatePropagation();
+				closeMobile();
+			} else if (event.key === "Tab") {
+				event.stopImmediatePropagation(); // keep session field shortcuts out of navigation
+				const items = focusable();
+				const first = items[0];
+				const last = items.at(-1);
+				if (event.shiftKey && document.activeElement === first) {
+					event.preventDefault(); last?.focus();
+				} else if (!event.shiftKey && document.activeElement === last) {
+					event.preventDefault(); first?.focus();
+				}
+			}
+		};
+		document.addEventListener("keydown", onKey, true);
+		return () => {
+			cancelAnimationFrame(frame);
+			document.removeEventListener("keydown", onKey, true);
+			if (previous?.isConnected) previous.focus({ preventScroll: true });
+		};
+	}, [mobile, mobileOpen, closeMobile]);
 
 	useEffect(() => {
 		// Electron shell detection (merged chrome, 2026-09-17): keys the
@@ -137,6 +201,10 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 	}, []);
 
 	const toggle = useCallback(() => {
+		if (mobile) {
+			setMobileOpen((value) => !value);
+			return;
+		}
 		// Opening while narrow (auto-closed, or the user's own closed-at-
 		// narrow): ask the shell to widen to the threshold — the resize
 		// listener flips `narrow` and the sidebar appears. The preference
@@ -152,7 +220,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 			localStorage.setItem(STORAGE_KEY, v ? "0" : "1");
 			return !v;
 		});
-	}, [narrow, open]);
+	}, [narrow, open, mobile]);
 
 	// ⌘B: the global shortcut dispatches kbdEventForAction("toggle-sidebar")
 	// and the context answers on exactly that name — the shared spelling
@@ -168,9 +236,9 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 	}, [toggle]);
 
 	return (
-		<SidebarContext.Provider value={{ open: open && !narrow, toggle }}>
+		<SidebarContext.Provider value={{ open: mobile ? mobileOpen : open && !narrow, mobile, closeMobile, toggle }}>
 			{/* transitions gated on mount: no slide-in flash on page load */}
-			<div className={cn("flex h-dvh", mounted && "[&_.sidebar-motion]:transition-[width,margin,opacity]")}>{children}</div>
+			<div className={cn("lh-app-viewport flex", mounted && "[&_.sidebar-motion]:transition-[width,margin,opacity]")}>{children}</div>
 		</SidebarContext.Provider>
 	);
 }
@@ -201,6 +269,8 @@ export function SidebarToggle() {
 				variant="ghost"
 				size="icon"
 				aria-label="Open sidebar"
+				aria-expanded={open}
+				aria-controls="session-sidebar"
 				aria-hidden={open}
 				tabIndex={open ? -1 : 0}
 				onClick={toggle}
@@ -379,7 +449,7 @@ export type SessionKindFilter = "teach" | "all" | "practice";
 const KIND_FILTER_KEY = "lh:session-kind-filter";
 
 function SessionsSidebar() {
-	const { open, toggle } = useSidebar();
+	const { open, toggle, closeMobile } = useSidebar();
 	const [chats, setChats] = useState<ChatListItem[] | null>(null);
 	const [query, setQuery] = useState("");
 	const [kindFilter, setKindFilter] = useState<SessionKindFilter>("all");
@@ -400,8 +470,9 @@ function SessionsSidebar() {
 	   message is sent (and that message becomes its title). Search: a
 	   client-side filter over the poll snapshot — no server round trip. */
 	const newSession = useCallback(() => {
+		closeMobile();
 		router.push("/chat/new");
-	}, [router]);
+	}, [router, closeMobile]);
 
 	/* FUZZY (owner round 8, 2026-10-05): subsequence match ranked by
 	 * fuzzyScore — prefix beats word-boundary beats scattered. Empty query
@@ -636,8 +707,11 @@ function SessionsSidebar() {
 
 	return (
 		<aside
-			className={cn("sidebar-motion shrink-0 overflow-hidden duration-200", open ? "w-72" : "w-0")}
+			id="session-sidebar"
+			aria-label="Sessions"
+			className={cn("lh-sidebar sidebar-motion shrink-0 overflow-hidden duration-200", open ? "w-72" : "w-0")}
 			aria-hidden={!open}
+			inert={!open}
 		>
 			<div className="flex h-full w-72 flex-col border-r bg-background">
 				{/* LH wordmark — the owner's header; close toggle sits at the edge.
@@ -662,6 +736,7 @@ function SessionsSidebar() {
 					>
 						<Link
 							href="/"
+							onClick={closeMobile}
 							aria-label="Home"
 							className="lh-no-drag flex size-9 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50"
 						>
@@ -699,7 +774,7 @@ function SessionsSidebar() {
 					<button
 						type="button"
 						data-testid="new-session-practice"
-						onClick={() => router.push("/chat/new?mode=practice")}
+						onClick={() => { closeMobile(); router.push("/chat/new?mode=practice"); }}
 						className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 					>
 						<DumbbellIcon className="size-3" />
@@ -819,6 +894,7 @@ function SessionsSidebar() {
 									kbdSelected={i === kbdIndex}
 									onOpen={() => {
 										setKbdIndex(null);
+										closeMobile();
 										router.push(`/chat/${c.id}`);
 									}}
 									onContextMenu={(e) => openContext(e, c)}
@@ -842,7 +918,7 @@ function SessionsSidebar() {
 						<Hint label="Settings" action="open-settings" side="right">
 							<button
 								type="button"
-								onClick={() => openSettings()}
+								onClick={() => { closeMobile(); openSettings(); }}
 								data-testid="settings-entry"
 								className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 							>
@@ -933,10 +1009,12 @@ function SessionsSidebar() {
 
 /** The app frame: sidebar inline + content. Rendered once in the root layout. */
 export function AppShell({ children }: { children: React.ReactNode }) {
+	const { mobile, open, closeMobile } = useSidebar();
 	return (
 		<SettingsDialogProvider>
+			{mobile && open && <button type="button" aria-label="Close navigation" className="fixed inset-0 z-30 bg-black/60" onClick={closeMobile} tabIndex={-1} />}
 			<SessionsSidebar />
-			<main className="min-w-0 flex-1">{children}</main>
+			<main className="min-w-0 flex-1" inert={mobile && open}>{children}</main>
 			{/* The single document-level keydown listener (keyboard wave A) —
 			    after the content in the tree, but it's window-level so order only
 			    matters for the events it dispatches, never for DOM priority. */}

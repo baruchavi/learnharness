@@ -99,7 +99,7 @@ export function StatsBar({
 			// (so its transparent gradient area never blocks scrolling) — this row
 			// must re-enable events or every control on it is dead (the model-
 			// control wave caught this live: buttons rendered, clicks never landed).
-			className="pointer-events-auto relative flex items-center justify-between gap-3 px-3 pt-2 text-xs text-muted-foreground"
+			className="pointer-events-auto relative flex flex-wrap items-center justify-between gap-2 sm:gap-3 px-1 sm:px-3 pt-2 text-xs text-muted-foreground"
 		>
 			{/* The summary button + its popover: the popover anchors to this
 			    wrapper, CENTERED over the button itself (owner, stats round 2)
@@ -132,7 +132,7 @@ export function StatsBar({
 				{open && (
 					<div
 						data-testid="stats-detail"
-						className="absolute bottom-full left-1/2 z-40 mb-1.5 w-72 -translate-x-1/2 rounded-xl border bg-card p-3 text-xs shadow-xl"
+						className="absolute bottom-full left-0 sm:left-1/2 z-40 mb-1.5 w-72 max-w-[calc(100vw-2rem)] sm:-translate-x-1/2 rounded-xl border bg-card p-3 text-xs shadow-xl"
 					>
 						<div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 							Session stats

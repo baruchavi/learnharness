@@ -157,7 +157,7 @@ export function Home({
 	};
 
 	return (
-		<div className="relative h-dvh">
+		<div className="lh-app-viewport relative">
 			{/* Window-drag strip (merged chrome, owner 2026-09-17): a dedicated
 			    mask element, deliberately FIRST in the DOM. Electron's app-region
 			    mask resolves by DOM order — a no-drag element subtracts only drag
@@ -209,8 +209,8 @@ export function Home({
 			    OVER the graph (no gradient: the graph runs clean under it to the
 			    bottom edge). Matches chat.tsx's DOCK geometry (max-w-[46rem]
 			    px-4) so nothing shifts when a session starts (owner). */}
-			<div className="pointer-events-none absolute inset-x-0 bottom-0 pb-5">
-				<div className="pointer-events-auto mx-auto w-full max-w-[46rem] px-4">
+			<div className="lh-safe-bottom pointer-events-none absolute inset-x-0 bottom-0 pb-5">
+				<div className="pointer-events-auto mx-auto w-full max-w-[46rem] px-2 sm:px-4">
 					{/* The pick bar (owner vision, 2026-10-04): the chain
 					    table's selection is PERSISTENT — picked
 					    propositions show here as a count + Clear in EITHER
@@ -273,7 +273,7 @@ export function Home({
 						placeholder={mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
 						autoFocus
 						rows={1}
-						className="field-sizing-content lh-input max-h-48 min-h-10 flex-1 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"
+								className="field-sizing-content lh-input max-h-48 min-h-10 min-w-0 flex-1 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"
 					/>
 					{/* No tooltip on the start square — the ↵ glyph is the
 					    affordance (owner, subtlety round 2026-09-25). */}
