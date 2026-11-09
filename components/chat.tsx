@@ -26,6 +26,7 @@ import { Composer } from "@/components/composer";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { dockStateKey } from "@/components/dock-state-key";
+import { attachDockTouchScroll } from "@/components/dock-touch-scroll";
 import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-steers";
 import { DictationBar, finishDictation, joinDictation, useDictation } from "@/components/dictation";
 import { useFieldCycle } from "@/components/field-cycle";
@@ -1889,7 +1890,7 @@ function DockOverlay({
 	 *  home and /chat/new carry, above the composer while slots are unset. */
 	setupCta?: React.ReactNode;
 }) {
-	const { isAtBottom, scrollToBottom, scrollRef } = useStickToBottomContext();
+	const { isAtBottom, scrollToBottom, scrollRef, stopScroll } = useStickToBottomContext();
 	// Render-fresh bottom state (flicker round): the arrival block below reads
 	// it DURING RENDER — the same value the after-paint effect used to read a
 	// frame too late. Assigned per render like the other refs below.
@@ -2072,6 +2073,21 @@ function DockOverlay({
 		root.addEventListener("wheel", onWheel, { passive: false });
 		return () => root.removeEventListener("wheel", onWheel);
 	}, [scrollRef]);
+
+	// Touch pans need the same sibling-to-transcript bridge as wheel input.
+	// Inner question/answer scrollers consume the gesture first; reaching
+	// their edge lets the learner return to the teaching without answering.
+	useEffect(() => {
+		const root = blockRef.current;
+		const transcript = scrollRef.current;
+		if (!root || !transcript) return;
+		return attachDockTouchScroll(root, transcript, (deltaY) => {
+			if (deltaY < 0) {
+				expandIntentRef.current = false;
+				stopScroll();
+			}
+		});
+	}, [scrollRef, stopScroll]);
 
 	// ── The reserve: the spacer's height, reported upward ──
 	// Grows immediately (typing, new variants). NEVER drops while a question
