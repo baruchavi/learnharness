@@ -1,9 +1,11 @@
-// Regenerate the Windows/Linux icon set from the flat design source
+// Regenerate the Windows/Linux and PWA icon sets from the flat design source
 // (build/icon-flat.svg — the owner's Affinity export, rounded squircle
 // with baked transparency, owner ruling 2026-10-13).
 //
 //   build/icon.ico  — Windows (.ico with 16/24/32/48/64/128/256 PNG entries)
 //   build/icon.png  — Linux (512×512; AppImage/deb/desktop entry)
+//   public/icons/icon-{192,512}.png — PWA install icons
+//   app/apple-icon.png — iOS home screen icon (180×180)
 //
 // macOS does NOT come from here: build/icon.icon (the Icon Composer
 // document) is the mac source of truth, compiled by actool at package
@@ -15,7 +17,7 @@
 // edges than downsampling a raster. Committed outputs; rerun only when
 // the design changes: `node scripts/make-icons.mjs`.
 import { Resvg } from "@resvg/resvg-js";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -53,3 +55,11 @@ console.log(`build/icon.ico  ${ICO_SIZES.join("/")} — ${(ico.length / 1024).to
 const png512 = render(512);
 writeFileSync(path.join(root, "build", "icon.png"), png512);
 console.log(`build/icon.png  512×512 — ${(png512.length / 1024).toFixed(1)} KB`);
+
+// ---- PWA and Apple home screen icons -----------------------------------
+const webIcons = path.join(root, "public", "icons");
+mkdirSync(webIcons, { recursive: true });
+writeFileSync(path.join(webIcons, "icon-192.png"), render(192));
+writeFileSync(path.join(webIcons, "icon-512.png"), png512);
+writeFileSync(path.join(root, "app", "apple-icon.png"), render(180));
+console.log("PWA icons  192×192 / 512×512; Apple touch icon  180×180");

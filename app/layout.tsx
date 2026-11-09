@@ -16,9 +16,11 @@ const prose = Source_Sans_3({ subsets: ["latin"], variable: "--font-sans3" });
 export const metadata: Metadata = {
 	title: "Learning Harness",
 	description: "A teacher agent with a memory — sessions, quizzes, and a knowledge graph of what you know.",
+	appleWebApp: { capable: true, title: "Learning Harness" },
 };
 
 export const viewport: Viewport = {
+	themeColor: "#141414",
 	width: "device-width",
 	initialScale: 1,
 	viewportFit: "cover",
