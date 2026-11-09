@@ -7,7 +7,7 @@ import { parseHTML } from "linkedom";
 import { useModelCatalog, catalogLimits } from "../components/model-picker.tsx";
 import { useZeroKeys, useStrongKeyless } from "../components/setup-cta.tsx";
 import { notifySettingsSaved } from "../components/settings-signal.ts";
-import { SidebarProvider } from "../components/sidebar.tsx";
+import { SidebarProvider, useSidebar } from "../components/sidebar.tsx";
 import { ChatGPTConnection, ChatGPTUIProvider } from "../components/settings/chatgpt-connection.tsx";
 import { GraphCostControl } from "../components/graph-view.tsx";
 import { graphCostSummary as foldGraphCostSummary, type CostSummaryInput } from "../src/core/cost-summary.ts";
@@ -15,6 +15,17 @@ const graphCostSummary = (input: CostSummaryInput) => foldGraphCostSummary(input
 import type { ModelCatalogResponse, ChatGPTStatus } from "../src/core/index.ts";
 const dom = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, { window: dom.window, document: dom.document, Element: dom.window.Element, HTMLElement: dom.window.HTMLElement, CustomEvent: dom.window.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true, localStorage: { getItem: () => null, setItem() {} } });
+// linkedom has no layout/media-query engine; model the browser API used
+// by the root sidebar, including change subscriptions and their cleanup.
+let phoneWidth = false;
+const mediaListeners = new Set<() => void>();
+Object.assign(window, {
+ matchMedia: () => ({
+  get matches() { return phoneWidth; },
+  addEventListener: (_type: string, listener: () => void) => mediaListeners.add(listener),
+  removeEventListener: (_type: string, listener: () => void) => mediaListeners.delete(listener),
+ }),
+});
 const originalFetch = globalThis.fetch;
 let root: Root | undefined, host: HTMLDivElement | undefined;
 function deferred<T>() { let resolve!: (v: T) => void; const promise = new Promise<T>((done) => { resolve = done; }); return { promise, resolve }; }
@@ -81,4 +92,36 @@ test("root-lifetime safe bridge publishes with Connections unmounted; commands/p
  assert.equal(unsubscriptions, 1);
  await act(async () => { for (const callback of pushes) callback(); });
  assert.equal(fetches, mounted + 2);
+});
+
+test("phone sidebar starts closed, toggles independently, and restores the desktop preference", async () => {
+ const originalFrame = globalThis.requestAnimationFrame;
+ const originalCancel = globalThis.cancelAnimationFrame;
+ globalThis.requestAnimationFrame = () => 1; // no layout/focus frame in linkedom
+ globalThis.cancelAnimationFrame = () => {};
+ let state!: ReturnType<typeof useSidebar>;
+ function NavigationReader() { state = useSidebar(); return null; }
+ try {
+  await mount(<SidebarProvider><NavigationReader /></SidebarProvider>);
+  assert.equal(state.mobile, false);
+  assert.equal(state.open, true);
+  assert.equal(mediaListeners.size, 1);
+  await act(async () => { phoneWidth = true; for (const listener of mediaListeners) listener(); });
+  assert.equal(state.mobile, true);
+  assert.equal(state.open, false, "phone never inherits the open desktop sidebar");
+  await act(async () => state.toggle());
+  assert.equal(state.open, true);
+  await act(async () => state.closeMobile());
+  assert.equal(state.open, false);
+  await act(async () => { phoneWidth = false; for (const listener of mediaListeners) listener(); });
+  assert.equal(state.mobile, false);
+  assert.equal(state.open, true, "phone dismissal preserves the desktop preference");
+  await act(async () => root!.unmount());
+  root = undefined;
+  assert.equal(mediaListeners.size, 0, "unmount removes the media subscription");
+ } finally {
+  phoneWidth = false;
+  globalThis.requestAnimationFrame = originalFrame;
+  globalThis.cancelAnimationFrame = originalCancel;
+ }
 });
